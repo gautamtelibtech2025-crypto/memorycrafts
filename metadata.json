@@ -1,0 +1,6 @@
+{
+  "name": "MemoryCraft",
+  "description": "A premium digital marketplace for purchasing elegant, editable Canva templates and bespoke custom surprise websites.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

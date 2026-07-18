@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Rules for the users collection
+    match /users/{userId} {
+      // Allow read if user is signed in and is reading their own document
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow create/update only if the user is authenticated and matches the userId, and verifies their identity payload
+      allow create: if request.auth != null && request.auth.uid == userId 
+                    && request.resource.data.uid == userId;
+                    
+      allow update: if request.auth != null && request.auth.uid == userId 
+                    && request.resource.data.uid == userId;
+    }
+
+    // Rules for orders collection
+    match /orders/{orderId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create, update: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Rules for chats subcollection
+    match /chats/{orderId}/messages/{messageId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
