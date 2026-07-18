@@ -614,16 +614,6 @@ export default function DrawersAndModals({
                                 <li>Click <strong>Add domain</strong>, paste the copied hostname above, and save.</li>
                               </ol>
                             </div>
-
-                            <div className="border-t border-amber-200/50 pt-2.5 mt-2 space-y-1.5 text-amber-800 text-[11px]">
-                              <p className="font-semibold text-amber-900">हिंदी में निर्देश (Hindi Instructions):</p>
-                              <p>यह error इसलिए आ रहा है क्योंकि Firebase Authentication में यह preview domain authorize नहीं है।</p>
-                              <ol className="list-decimal pl-4 space-y-1">
-                                <li>ऊपर दिए गए domain name को copy करें।</li>
-                                <li>अपने Firebase Console में <strong>Authentication</strong> &rarr; <strong>Settings</strong> &rarr; <strong>Authorized domains</strong> पर जाएं।</li>
-                                <li><strong>Add domain</strong> पर क्लिक करके copy किया गया domain paste करें और save करें।</li>
-                              </ol>
-                            </div>
                           </div>
                         )}
 
@@ -647,12 +637,6 @@ export default function DrawersAndModals({
                               >
                                 🔗 Open App in New Tab to Log In
                               </a>
-                            </div>
-
-                            <div className="border-t border-blue-200/50 pt-2.5 mt-2 space-y-1.5 text-blue-800 text-[11px]">
-                              <p className="font-semibold text-blue-900">हिंदी में निर्देश (Hindi Instructions):</p>
-                              <p>AI Studio editor के preview (iframe) के अंदर होने के कारण, browser सुरक्षा कारणों से Google Sign-In popup को block या close कर देता है।</p>
-                              <p>इसे ठीक करने के लिए ऊपर दिए गए <strong>"Open App in New Tab"</strong> बटन पर क्लिक करें और वहां से Login करें।</p>
                             </div>
                           </div>
                         )}
