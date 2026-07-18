@@ -184,21 +184,23 @@ _firebase_cred_path = Path(FIREBASE_SERVICE_ACCOUNT_PATH)
 if not _firebase_cred_path.is_absolute():
     _firebase_cred_path = BASE_DIR / _firebase_cred_path
 
+_firebase_project_id = os.getenv('FIREBASE_PROJECT_ID', 'memorycraft-2c771')
+
 if _firebase_cred_path.exists():
     if not firebase_admin._apps:
         cred = credentials.Certificate(str(_firebase_cred_path))
-        firebase_admin.initialize_app(cred)
-        print(f"[MemoryCraft] Firebase Admin SDK initialized from: {_firebase_cred_path}")
+        firebase_admin.initialize_app(cred, options={'projectId': _firebase_project_id})
+        print(f"[MemoryCraft] Firebase Admin SDK initialized from: {_firebase_cred_path} for project: {_firebase_project_id}")
 else:
     if not firebase_admin._apps:
-        # Initialize without credentials for development/testing
-        # Token verification will fail but server can still start
+        # Initialize without credentials but with project ID for token verification
         try:
-            firebase_admin.initialize_app()
-            print("[MemoryCraft] Firebase Admin SDK initialized without service account (limited functionality)")
-        except Exception:
-            print(f"[MemoryCraft] WARNING: Firebase service account not found at: {_firebase_cred_path}")
+            firebase_admin.initialize_app(options={'projectId': _firebase_project_id})
+            print(f"[MemoryCraft] Firebase Admin SDK initialized without service account for project: {_firebase_project_id}")
+        except Exception as e:
+            print(f"[MemoryCraft] WARNING: Failed to initialize Firebase Admin: {e}")
             print("[MemoryCraft] /api/me/ will return 401 for all requests until configured.")
+
 
 
 # --------------------------------------------------------------------------

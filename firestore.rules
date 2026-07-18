@@ -17,12 +17,16 @@ service cloud.firestore {
                     
       allow update: if request.auth != null && request.auth.uid == userId 
                     && request.resource.data.uid == userId;
+
+      // Allow delete if the authenticated user matches the userId
+      allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
     // Rules for orders collection
     match /orders/{orderId} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create, update: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.userId == request.auth.uid;
     }
 
     // Rules for chats subcollection
