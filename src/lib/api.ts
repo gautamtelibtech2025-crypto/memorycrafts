@@ -198,3 +198,31 @@ export async function apiDelete<T = any>(
 
   return handleResponse<T>(response);
 }
+
+/**
+ * Make an authenticated POST request with FormData (for file uploads).
+ * Does not set Content-Type so the browser sets it with the boundary.
+ */
+export async function apiUpload<T = any>(
+  path: string,
+  formData: FormData,
+  extraHeaders?: Record<string, string>
+): Promise<T> {
+  const url = `${API_BASE_URL}${path}`;
+  
+  // Custom header builder without Content-Type
+  const headers: Record<string, string> = { ...extraHeaders };
+  const token = await getFirebaseToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  return handleResponse<T>(response);
+}
+

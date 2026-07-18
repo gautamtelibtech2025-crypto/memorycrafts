@@ -1,7 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser, updateProfile, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, updateDoc, setLogLevel } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser, updateProfile, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup } from 'firebase/auth';
+import { getFirestore, doc, getDoc, setDoc, updateDoc, setLogLevel, collection, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { UserProfile } from '../types';
+import { apiUpload, apiDelete } from './api';
 
 // Check if Firebase config is provided
 const firebaseConfig = {
@@ -551,3 +552,189 @@ export async function saveUserProfile(profile: UserProfile): Promise<void> {
     mockAuthListeners.forEach((listener) => listener(updatedProfile));
   }
 }
+
+// Upload a profile picture
+export async function uploadProfilePhoto(uid: string, file: File): Promise<string> {
+  if (isFirebaseConfigured && auth) {
+    // Real mode upload to Django
+    const formData = new FormData();
+    formData.append('file', file);
+    const result = await apiUpload('/api/users/profile-photo/', formData);
+    
+    // Update the user's Firestore profile photoURL
+    const userDocRef = doc(db, 'users', uid);
+    try {
+      await updateDoc(userDocRef, {
+        photoURL: result.photoURL,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (dbErr) {
+      console.warn('Failed to update Firestore photoURL:', dbErr);
+    }
+
+    // Update the Firebase Auth user's photoURL
+    if (auth.currentUser) {
+      try {
+        await updateProfile(auth.currentUser, {
+          photoURL: result.photoURL
+        });
+      } catch (authErr) {
+        console.warn('Failed to update Firebase Auth user photoURL:', authErr);
+      }
+    }
+
+    // Clear/update local cache
+    const cacheKey = `firebase_profile_cache_${uid}`;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.photoURL = result.photoURL;
+        parsed.updatedAt = new Date().toISOString();
+        localStorage.setItem(cacheKey, JSON.stringify(parsed));
+      }
+    } catch (cacheErr) {
+      console.info('Failed to update profile cache:', cacheErr);
+    }
+
+    return result.photoURL;
+  } else {
+    // Mock mode: Convert to base64 Data URL and save in mock profiles
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64Url = e.target?.result as string;
+        
+        // Save to mock profiles
+        const profiles = getMockProfiles();
+        if (profiles[uid]) {
+          profiles[uid].photoURL = base64Url;
+          profiles[uid].updatedAt = new Date().toISOString();
+          saveMockProfiles(profiles);
+        }
+        
+        // Save to mock currentUser
+        if (currentMockUser && currentMockUser.uid === uid) {
+          currentMockUser.photoURL = base64Url;
+          localStorage.setItem(MOCK_USER_KEY, JSON.stringify(currentMockUser));
+        }
+
+        // Notify listeners
+        mockAuthListeners.forEach((listener) => {
+          if (profiles[uid]) {
+            listener(profiles[uid]);
+          }
+        });
+
+        resolve(base64Url);
+      };
+      reader.onerror = () => reject(new Error('Failed to read file as Base64'));
+      reader.readAsDataURL(file);
+    });
+  }
+}
+
+// Re-authenticate user before deleting (recent login requirement)
+export async function reauthenticateGoogleUser(): Promise<void> {
+  if (isFirebaseConfigured && auth && auth.currentUser) {
+    const provider = new GoogleAuthProvider();
+    await reauthenticateWithPopup(auth.currentUser, provider);
+  }
+}
+
+export async function reauthenticateEmailUser(password: string): Promise<void> {
+  if (isFirebaseConfigured && auth && auth.currentUser && auth.currentUser.email) {
+    const credential = EmailAuthProvider.credential(auth.currentUser.email, password);
+    await reauthenticateWithCredential(auth.currentUser, credential);
+  }
+}
+
+// Delete user account and associated private data
+export async function deleteUserAccountFirestoreAndAuth(): Promise<void> {
+  if (isFirebaseConfigured && auth && auth.currentUser) {
+    const uid = auth.currentUser.uid;
+
+    // 1. Clean up profile picture from Django disk/backend
+    try {
+      await apiDelete('/api/users/profile-photo/delete/');
+    } catch (err) {
+      console.warn('Failed to clean up profile photo from backend:', err);
+    }
+
+    // 2. Anonymize Orders & Delete Chats in Firestore
+    if (db) {
+      try {
+        const ordersRef = collection(db, 'orders');
+        const q = query(ordersRef, where('userId', '==', uid));
+        const querySnapshot = await getDocs(q);
+        
+        const batch = writeBatch(db);
+        
+        for (const docSnapshot of querySnapshot.docs) {
+          const orderId = docSnapshot.id;
+          
+          // Anonymize the order record: decouple it from the user's UID
+          const orderDocRef = doc(db, 'orders', orderId);
+          batch.update(orderDocRef, {
+            userId: 'anonymized-deleted-user',
+            updatedAt: new Date().toISOString()
+          });
+
+          // Delete chats associated with this order
+          try {
+            const chatMessagesRef = collection(db, 'chats', orderId, 'messages');
+            const messagesSnapshot = await getDocs(chatMessagesRef);
+            for (const msgDoc of messagesSnapshot.docs) {
+              batch.delete(doc(db, 'chats', orderId, 'messages', msgDoc.id));
+            }
+          } catch (chatErr) {
+            console.warn(`Failed to clean up chat messages for order ${orderId}:`, chatErr);
+          }
+        }
+        
+        // 3. Delete user profile document from Firestore
+        const userDocRef = doc(db, 'users', uid);
+        batch.delete(userDocRef);
+
+        // Commit all Firestore operations in a batch
+        await batch.commit();
+      } catch (firestoreErr) {
+        console.error('Failed to clean up Firestore user data during account deletion:', firestoreErr);
+        throw firestoreErr;
+      }
+    }
+
+    // 4. Delete Firebase Auth user
+    try {
+      await deleteUser(auth.currentUser);
+    } catch (authErr: any) {
+      console.error('Failed to delete Firebase Auth user:', authErr);
+      throw authErr;
+    }
+
+    // 5. Clean up Local Storage
+    const cacheKey = `firebase_profile_cache_${uid}`;
+    localStorage.removeItem(cacheKey);
+    localStorage.removeItem(`memorycraft_orders_v1_${uid}`);
+  } else {
+    // Mock Mode deletion
+    const currentMock = currentMockUser;
+    if (currentMock) {
+      const uid = currentMock.uid;
+      
+      // Clean up mock profiles
+      const profiles = getMockProfiles();
+      delete profiles[uid];
+      saveMockProfiles(profiles);
+
+      // Clean up local storage items
+      localStorage.removeItem(MOCK_USER_KEY);
+      localStorage.removeItem(`memorycraft_orders_v1_${uid}`);
+      currentMockUser = null;
+
+      // Notify listeners
+      mockAuthListeners.forEach((listener) => listener(null));
+    }
+  }
+}
+

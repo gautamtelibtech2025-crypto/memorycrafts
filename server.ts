@@ -48,6 +48,15 @@ app.use(
   })
 );
 
+// Proxy media files to Django Backend
+app.use(
+  "/media",
+  createProxyMiddleware({
+    target: "http://127.0.0.1:8000",
+    changeOrigin: true,
+  })
+);
+
 // Vite Middleware & SPA serving
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
