@@ -15,7 +15,9 @@ db.sqlite3-journal
 
 # Firebase credentials (NEVER commit)
 firebase-service-account.json
+*firebase-adminsdk*.json
 *.json.bak
+
 
 # IDE
 .vscode/
