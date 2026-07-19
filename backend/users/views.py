@@ -97,10 +97,11 @@ def upload_profile_photo(request):
         logger.error("Failed to save uploaded file: %s", str(e))
         return Response({'detail': 'Failed to save the image on server.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # 4. Return correct photo URL
-    photo_url = f"/media/profile_pics/{filename}"
+    # 4. Return correct photo URL (absolute URI matching the server host)
+    photo_url = request.build_absolute_uri(f"/media/profile_pics/{filename}")
     
     logger.info("Uploaded new profile photo for uid=%s to %s", user.uid, photo_url)
+
     return Response({
         'photoURL': photo_url,
         'message': 'Profile picture uploaded successfully.'

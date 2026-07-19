@@ -20,6 +20,8 @@ import {
   Package
 } from 'lucide-react';
 import { Category, CATEGORIES, UserProfile } from '../types';
+import { API_BASE_URL } from '../lib/api';
+
 
 interface NavbarProps {
   cartCount: number;
@@ -260,7 +262,13 @@ export default function Navbar({
                   className="flex items-center space-x-2 p-1 rounded-full hover:bg-[#FAFAFA] transition-colors focus:outline-hidden cursor-pointer"
                 >
                   <img
-                    src={user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                    src={
+                      user.photoURL
+                        ? user.photoURL.startsWith('/media/')
+                          ? `${API_BASE_URL}${user.photoURL}`
+                          : user.photoURL
+                        : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'
+                    }
                     alt={user.displayName || 'Patron'}
                     referrerPolicy="no-referrer"
                     className="w-8 h-8 rounded-full object-cover border border-[#EAEAEA]"
@@ -462,7 +470,13 @@ export default function Navbar({
                 <div className="space-y-3 pt-3 border-t border-neutral-100">
                   <div className="flex items-center space-x-3 px-1 py-1">
                     <img
-                      src={user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                      src={
+                        user.photoURL
+                          ? user.photoURL.startsWith('/media/')
+                            ? `${API_BASE_URL}${user.photoURL}`
+                            : user.photoURL
+                          : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'
+                      }
                       alt={user.displayName || 'Patron'}
                       referrerPolicy="no-referrer"
                       className="w-10 h-10 rounded-full object-cover border border-[#EAEAEA]"

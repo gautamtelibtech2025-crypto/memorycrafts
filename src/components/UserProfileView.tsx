@@ -3,6 +3,8 @@ import { motion } from 'motion/react';
 import { User, Mail, Phone, Globe, MapPin, Building, Lock, Check, Loader2, Camera, Trash2, AlertTriangle, X } from 'lucide-react';
 import { UserProfile } from '../types';
 import { saveUserProfile, auth, uploadProfilePhoto, reauthenticateGoogleUser, reauthenticateEmailUser, deleteUserAccountFirestoreAndAuth } from '../lib/firebase';
+import { API_BASE_URL } from '../lib/api';
+
 
 interface UserProfileViewProps {
   user: UserProfile;
@@ -186,7 +188,14 @@ export default function UserProfileView({ user, onUpdateUser, showToast }: UserP
             <label htmlFor="profile-photo-input" className="relative block cursor-pointer group">
               <div className="relative w-24 h-24 rounded-full overflow-hidden border border-[#EAEAEA] shadow-sm transition-transform duration-300 group-hover:scale-[1.02]">
                 <img
-                  src={user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'}
+                  src={
+                    user.photoURL
+                      ? user.photoURL.startsWith('/media/')
+                        ? `${API_BASE_URL}${user.photoURL}`
+                        : user.photoURL
+                      : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'
+                  }
+
                   alt={user.displayName || 'Patron'}
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover"

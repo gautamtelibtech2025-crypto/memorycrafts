@@ -21,8 +21,9 @@ import { auth, isFirebaseConfigured } from './firebase';
 
 // Base URL for the Django backend API
 // Defaults to localhost:8000 for development
-const API_BASE_URL: string =
+export const API_BASE_URL: string =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 
 /**
  * Get the current Firebase ID token for the authenticated user.
