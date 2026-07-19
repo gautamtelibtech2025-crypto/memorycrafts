@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { User, Mail, Phone, Globe, MapPin, Building, Lock, Check, Loader2, Camera, Trash2, AlertTriangle, X } from 'lucide-react';
 import { UserProfile } from '../types';
-import { saveUserProfile, auth, uploadProfilePhoto, reauthenticateGoogleUser, reauthenticateEmailUser, deleteUserAccountFirestoreAndAuth } from '../lib/firebase';
+import { saveUserProfile, auth, uploadProfilePhoto, reauthenticateGoogleUser, reauthenticateEmailUser, deleteUserAccountFirestoreAndAuth, removeProfilePhoto } from '../lib/firebase';
+
 import { API_BASE_URL } from '../lib/api';
 
 
@@ -21,6 +22,39 @@ export default function UserProfileView({ user, onUpdateUser, showToast }: UserP
   
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  
+  // Photo Action Menu States
+  const [showPhotoMenu, setShowPhotoMenu] = useState(false);
+  const [showViewPhotoModal, setShowViewPhotoModal] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleRemovePhotoSubmit = async () => {
+    setShowRemoveConfirm(false);
+    setIsUploading(true);
+    try {
+      const fallbackUrl = await removeProfilePhoto(user.uid);
+      const updatedProfile = {
+        ...user,
+        photoURL: fallbackUrl
+      };
+      onUpdateUser(updatedProfile);
+      showToast('Profile picture removed successfully.', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'Failed to remove profile picture.', 'error');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const getUserInitials = () => {
+    if (!user.displayName) return 'M';
+    const parts = user.displayName.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  };
+
   
   // Account Deletion States
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -176,30 +210,37 @@ export default function UserProfileView({ user, onUpdateUser, showToast }: UserP
         </div>
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 flex flex-col md:flex-row items-center gap-6">
-          <div className="relative group cursor-pointer">
+          <div className="relative group">
             <input
               type="file"
-              id="profile-photo-input"
+              ref={fileInputRef}
               accept="image/png, image/jpeg, image/webp, image/jpg"
               onChange={handlePhotoChange}
               disabled={isUploading}
               className="hidden"
             />
-            <label htmlFor="profile-photo-input" className="relative block cursor-pointer group">
-              <div className="relative w-24 h-24 rounded-full overflow-hidden border border-[#EAEAEA] shadow-sm transition-transform duration-300 group-hover:scale-[1.02]">
-                <img
-                  src={
-                    user.photoURL
-                      ? user.photoURL.startsWith('/media/')
+            <button
+              type="button"
+              onClick={() => setShowPhotoMenu(true)}
+              className="relative block group focus:outline-hidden cursor-pointer"
+            >
+              <div className="relative w-24 h-24 rounded-full overflow-hidden border border-[#EAEAEA] shadow-sm transition-transform duration-300 group-hover:scale-[1.02] flex items-center justify-center bg-stone-50">
+                {user.photoURL ? (
+                  <img
+                    src={
+                      user.photoURL.startsWith('/media/')
                         ? `${API_BASE_URL}${user.photoURL}`
                         : user.photoURL
-                      : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120'
-                  }
-
-                  alt={user.displayName || 'Patron'}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
+                    }
+                    alt={user.displayName || 'Patron'}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-stone-100 flex items-center justify-center font-mono font-medium text-neutral-500 text-2xl tracking-wider select-none">
+                    {getUserInitials()}
+                  </div>
+                )}
                 
                 {/* Upload Spinner overlay */}
                 {isUploading ? (
@@ -210,18 +251,19 @@ export default function UserProfileView({ user, onUpdateUser, showToast }: UserP
                   /* Hover Camera icon */
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white">
                     <Camera className="w-5 h-5 mb-0.5" />
-                    <span className="text-[8px] uppercase tracking-wider font-semibold font-mono">Upload</span>
+                    <span className="text-[8px] uppercase tracking-wider font-semibold font-mono">Edit</span>
                   </div>
                 )}
               </div>
               
               {!isUploading && (
-                <div className="absolute -bottom-1 -right-1 bg-[#2563EB] text-white p-1.5 rounded-full border-2 border-white shadow-xs">
-                  <Check className="w-3.5 h-3.5" />
+                <div className="absolute -bottom-1 -right-1 bg-neutral-950 text-white p-1.5 rounded-full border-2 border-white shadow-xs">
+                  <Camera className="w-3 h-3" />
                 </div>
               )}
-            </label>
+            </button>
           </div>
+
           
           <div className="text-center md:text-left space-y-2">
             <span className="text-[10px] font-mono text-accent uppercase tracking-widest font-semibold block">
@@ -599,6 +641,178 @@ export default function UserProfileView({ user, onUpdateUser, showToast }: UserP
           </div>
         </div>
       )}
+
+      {/* Profile Photo Actions Menu / Bottom Sheet */}
+      {showPhotoMenu && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setShowPhotoMenu(false)}
+          />
+          
+          {/* Menu Card */}
+          <div className="relative w-full sm:max-w-xs bg-white rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden border-t sm:border border-[#EAEAEA] p-4 space-y-3 z-10 transition-all transform animate-in slide-in-from-bottom sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex justify-between items-center pb-2 border-b border-[#F4F4F5]">
+              <h4 className="font-sans font-semibold text-[10px] uppercase tracking-wider text-neutral-400">Profile Photo</h4>
+              <button 
+                type="button"
+                onClick={() => setShowPhotoMenu(false)}
+                className="text-neutral-400 hover:text-neutral-900 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Actions list */}
+            <div className="flex flex-col space-y-1">
+              {user.photoURL && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowViewPhotoModal(true);
+                    setShowPhotoMenu(false);
+                  }}
+                  className="w-full text-left py-2.5 px-3 rounded-xl hover:bg-[#FAFAFA] text-xs font-semibold text-neutral-800 transition-colors flex items-center space-x-2.5 cursor-pointer"
+                >
+                  <User className="w-4 h-4 text-neutral-500" />
+                  <span>View Photo</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  fileInputRef.current?.click();
+                  setShowPhotoMenu(false);
+                }}
+                className="w-full text-left py-2.5 px-3 rounded-xl hover:bg-[#FAFAFA] text-xs font-semibold text-neutral-800 transition-colors flex items-center space-x-2.5 cursor-pointer"
+              >
+                <Camera className="w-4 h-4 text-neutral-500" />
+                <span>Upload New Photo</span>
+              </button>
+
+              {user.photoURL && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRemoveConfirm(true);
+                    setShowPhotoMenu(false);
+                  }}
+                  className="w-full text-left py-2.5 px-3 rounded-xl hover:bg-red-50 text-xs font-semibold text-red-600 transition-colors flex items-center space-x-2.5 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                  <span>Remove Photo</span>
+                </button>
+              )}
+            </div>
+            
+            {/* Cancel Button */}
+            <button
+              type="button"
+              onClick={() => setShowPhotoMenu(false)}
+              className="w-full py-2.5 border border-[#EAEAEA] hover:bg-[#FAFAFA] rounded-full text-xs font-semibold text-neutral-800 transition-colors uppercase tracking-wider text-center cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* View Photo Large Modal */}
+      {showViewPhotoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/80 backdrop-blur-xs transition-opacity"
+            onClick={() => setShowViewPhotoModal(false)}
+          />
+          
+          {/* Photo Container */}
+          <div className="relative max-w-lg w-full bg-stone-950 rounded-2xl overflow-hidden shadow-2xl z-10 flex flex-col items-center p-6 space-y-4 transition-all transform scale-100 animate-in zoom-in-95 duration-200">
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setShowViewPhotoModal(false)}
+              className="absolute top-4 right-4 bg-stone-900/60 hover:bg-stone-900 text-white/80 hover:text-white rounded-full p-2 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            {/* Large Image */}
+            <div className="w-64 h-64 sm:w-80 sm:h-80 rounded-full overflow-hidden border border-stone-800 shadow-inner bg-stone-900 flex items-center justify-center">
+              {user.photoURL && (
+                <img
+                  src={
+                    user.photoURL.startsWith('/media/')
+                      ? `${API_BASE_URL}${user.photoURL}`
+                      : user.photoURL
+                  }
+                  alt={user.displayName || 'Patron'}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+              )}
+            </div>
+            
+            {/* Caption */}
+            <div className="text-center">
+              <h3 className="font-sans font-semibold text-sm text-stone-200">{user.displayName}</h3>
+              <p className="font-mono text-[9px] text-stone-500 uppercase tracking-widest mt-1">Patron Vault Identity</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove Photo Confirmation Modal */}
+      {showRemoveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setShowRemoveConfirm(false)}
+          />
+          
+          {/* Confirmation Box */}
+          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-xl border border-[#EAEAEA] p-5 space-y-4 z-10 transition-all transform scale-100 animate-in zoom-in-95 duration-200 text-center">
+            {/* Warning Icon */}
+            <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto border border-red-100">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            
+            {/* Title & Desc */}
+            <div className="space-y-1.5">
+              <h3 className="font-sans font-semibold text-base text-neutral-900">Remove Profile Picture?</h3>
+              <p className="text-xs text-neutral-500 font-light leading-relaxed">
+                This will delete your custom profile picture from the secure server storage. You will fall back to your Google profile picture or default avatar.
+              </p>
+            </div>
+            
+            {/* Action buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRemoveConfirm(false)}
+                className="py-2.5 border border-[#EAEAEA] hover:bg-[#FAFAFA] rounded-full text-xs font-semibold text-neutral-800 transition-colors uppercase tracking-wider cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRemovePhotoSubmit}
+                className="py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-full text-xs font-semibold transition-colors uppercase tracking-wider cursor-pointer"
+              >
+                Remove
+              </button>
+
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
+

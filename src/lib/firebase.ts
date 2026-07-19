@@ -738,3 +738,88 @@ export async function deleteUserAccountFirestoreAndAuth(): Promise<void> {
   }
 }
 
+// Remove the profile picture (fallback to Google or default)
+export async function removeProfilePhoto(uid: string): Promise<string | null> {
+  if (isFirebaseConfigured && auth) {
+    // 1. Delete picture file on Django backend
+    try {
+      await apiDelete('/api/users/profile-photo/delete/');
+    } catch (err) {
+      console.warn('Failed to delete profile photo from backend:', err);
+    }
+
+    // 2. Detect Google photo fallback
+    let fallbackPhotoURL: string | null = null;
+    if (auth.currentUser) {
+      const googleProvider = auth.currentUser.providerData.find(
+        (p) => p.providerId === 'google.com'
+      );
+      if (googleProvider && googleProvider.photoURL) {
+        fallbackPhotoURL = googleProvider.photoURL;
+      }
+    }
+
+    // 3. Update Firestore
+    if (db) {
+      const userDocRef = doc(db, 'users', uid);
+      try {
+        await updateDoc(userDocRef, {
+          photoURL: fallbackPhotoURL,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (dbErr) {
+        console.warn('Failed to update Firestore photoURL during removal:', dbErr);
+      }
+    }
+
+    // 4. Update Firebase Auth
+    if (auth.currentUser) {
+      try {
+        await updateProfile(auth.currentUser, {
+          photoURL: fallbackPhotoURL
+        });
+      } catch (authErr) {
+        console.warn('Failed to update Firebase Auth user photoURL during removal:', authErr);
+      }
+    }
+
+    // 5. Update Local Cache
+    const cacheKey = `firebase_profile_cache_${uid}`;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.photoURL = fallbackPhotoURL;
+        parsed.updatedAt = new Date().toISOString();
+        localStorage.setItem(cacheKey, JSON.stringify(parsed));
+      }
+    } catch (cacheErr) {
+      console.info('Failed to update profile cache:', cacheErr);
+    }
+
+    return fallbackPhotoURL;
+  } else {
+    // Mock Mode photo removal
+    const profiles = getMockProfiles();
+    if (profiles[uid]) {
+      profiles[uid].photoURL = null;
+      profiles[uid].updatedAt = new Date().toISOString();
+      saveMockProfiles(profiles);
+    }
+
+    if (currentMockUser && currentMockUser.uid === uid) {
+      currentMockUser.photoURL = null;
+      localStorage.setItem(MOCK_USER_KEY, JSON.stringify(currentMockUser));
+    }
+
+    mockAuthListeners.forEach((listener) => {
+      if (profiles[uid]) {
+        listener(profiles[uid]);
+      }
+    });
+
+    return null;
+  }
+}
+
+
