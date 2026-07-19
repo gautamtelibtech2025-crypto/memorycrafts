@@ -17,6 +17,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('core.urls')),
     path('api/', include('users.urls')),
+    path('api/categories/', include('templates_app.category_urls')),
     path('api/templates/', include('templates_app.urls')),
     path('api/orders/', include('orders.urls')),
 ]

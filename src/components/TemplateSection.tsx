@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles,
@@ -12,20 +12,25 @@ import {
   HelpCircle,
   FileText,
   Image as ImageIcon,
-  MousePointerClick
+  MousePointerClick,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
-import { CATEGORIES, Category } from '../types';
+import { CATEGORIES, Category, ApiCategory, ApiTemplate, apiCategoryToCategory } from '../types';
+import { apiGet } from '../lib/api';
 
 interface TemplateSectionProps {
   selectedCategory: string;
   setSelectedCategory: (catId: string) => void;
   setBuilderOpen: (open: boolean) => void;
+  searchQuery?: string;
 }
 
 export default function TemplateSection({
   selectedCategory,
   setSelectedCategory,
   setBuilderOpen,
+  searchQuery = '',
 }: TemplateSectionProps) {
   const [activeAssetType, setActiveAssetType] = useState<'all' | 'canva' | 'web'>('all');
   const [notifyEmail, setNotifyEmail] = useState('');
@@ -33,8 +38,79 @@ export default function TemplateSection({
   const [showNotifyModal, setShowNotifyModal] = useState(false);
   const [selectedMockupRatio, setSelectedMockupRatio] = useState('');
 
-  // Mock categories list with "All" prefixed
-  const filterCategories = [{ id: 'all', name: 'All Milestones' }, ...CATEGORIES];
+  // API state
+  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
+  const [templates, setTemplates] = useState<ApiTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch categories from API
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchCategories() {
+      try {
+        const data = await apiGet<ApiCategory[]>('/api/categories/');
+        if (!cancelled && data && data.length > 0) {
+          setCategories(data.map(apiCategoryToCategory));
+        }
+      } catch (err) {
+        console.error('[TemplateSection] Failed to fetch categories:', err);
+        // Keep CATEGORIES fallback
+      }
+    }
+    fetchCategories();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fetch templates from API with filters
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchTemplates() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams();
+        if (selectedCategory && selectedCategory !== 'all') {
+          params.append('category', selectedCategory);
+        }
+        if (searchQuery) {
+          params.append('search', searchQuery);
+        }
+        // Map asset type filter to API type param
+        if (activeAssetType === 'canva') {
+          params.append('type', 'canva_template');
+        } else if (activeAssetType === 'web') {
+          params.append('type', 'custom_website');
+        }
+
+        const queryString = params.toString();
+        const url = `/api/templates/${queryString ? `?${queryString}` : ''}`;
+        const data = await apiGet<ApiTemplate[]>(url);
+
+        if (!cancelled) {
+          setTemplates(data || []);
+        }
+      } catch (err) {
+        console.error('[TemplateSection] Failed to fetch templates:', err);
+        if (!cancelled) {
+          setError('Failed to load templates. Please try again.');
+          setTemplates([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchTemplates();
+    return () => { cancelled = true; };
+  }, [selectedCategory, searchQuery, activeAssetType]);
+
+  // Categories list with "All" prefixed
+  const filterCategories = [{ id: 'all', name: 'All Milestones' }, ...categories];
+
+  // Split templates into featured and latest
+  const featuredTemplates = templates.filter((t) => t.is_featured);
+  const latestTemplates = templates.filter((t) => !t.is_featured);
 
   const handleNotifySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,23 +124,82 @@ export default function TemplateSection({
     }
   };
 
-  const placeholderTemplates = [
-    { id: 'f1', title: 'Editorial Invitation Bundle', ratio: 'A4 Layout • Canva Template', type: 'canva', section: 'featured' },
-    { id: 'f2', title: 'Nostalgic Photo Timeline Deck', ratio: '16:9 Landscape • Canva Template', type: 'canva', section: 'featured' },
-    { id: 'f3', title: 'Minimal Proposal Countdown Site', ratio: 'Interactive Space • Custom Code', type: 'web', section: 'featured' },
-    { id: 'l1', title: 'Milestone Memory Album', ratio: '1:1 Square • Canva Template', type: 'canva', section: 'latest' },
-    { id: 'l2', title: 'Private Anniversary Registry', ratio: 'Custom Layout • Web Space', type: 'web', section: 'latest' },
-    { id: 'l3', title: 'Teacher Farewell Logbook', ratio: 'A4 Portrait • Canva Template', type: 'canva', section: 'latest' },
-  ];
+  // Render a template card (shared between featured and latest)
+  const renderTemplateCard = (item: ApiTemplate, section: 'featured' | 'latest') => (
+    <motion.div
+      key={item.id}
+      id={`${section}-card-${item.id}`}
+      whileHover={{ y: -5 }}
+      className="group relative bg-white rounded-xl border border-[#EAEAEA] overflow-hidden transition-all hover:border-[#111111] hover:shadow-lg"
+    >
+      {/* Thumbnail image or placeholder */}
+      {item.thumbnail ? (
+        <div className="relative h-48 overflow-hidden">
+          <img
+            src={item.thumbnail}
+            alt={item.title}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            onError={(e) => {
+              // Fallback to placeholder on image error
+              (e.target as HTMLImageElement).style.display = 'none';
+              (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+            }}
+          />
+          <div className="hidden absolute inset-0 bg-[#FAFAFA] flex items-center justify-center">
+            <Layout className="w-8 h-8 text-neutral-300" />
+          </div>
+          {/* Type badge */}
+          <div className="absolute top-3 left-3">
+            <span className={`text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded-full ${
+              item.template_type === 'custom_website'
+                ? 'bg-blue-50 text-blue-600 border border-blue-100'
+                : 'bg-neutral-50 text-neutral-600 border border-neutral-200'
+            }`}>
+              {item.template_type === 'custom_website' ? 'Custom Site' : 'Canva'}
+            </span>
+          </div>
+          {/* Featured badge */}
+          {item.is_featured && (
+            <div className="absolute top-3 right-3">
+              <span className="text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
+                Featured
+              </span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="relative h-48 bg-[linear-gradient(to_right,#fafafa_1px,transparent_1px),linear-gradient(to_bottom,#fafafa_1px,transparent_1px)] bg-[size:24px_24px] flex items-center justify-center">
+          <Layout className="w-10 h-10 text-neutral-200" />
+        </div>
+      )}
 
-  // Filter based on selected occasion and asset type
-  const filteredFeatured = placeholderTemplates
-    .filter((t) => t.section === 'featured')
-    .filter((t) => activeAssetType === 'all' || t.type === activeAssetType);
+      {/* Card body */}
+      <div className="p-5 space-y-3">
+        <div className="space-y-1">
+          <span className="text-[9px] font-mono uppercase tracking-widest text-neutral-400">
+            {item.ratio || item.category_name}
+          </span>
+          <h4 className="font-sans font-semibold text-sm text-[#111111] group-hover:text-accent transition-colors line-clamp-1">
+            {item.title}
+          </h4>
+          {item.description && (
+            <p className="text-xs text-[#666666] font-light leading-relaxed line-clamp-2">
+              {item.description}
+            </p>
+          )}
+        </div>
 
-  const filteredLatest = placeholderTemplates
-    .filter((t) => t.section === 'latest')
-    .filter((t) => activeAssetType === 'all' || t.type === activeAssetType);
+        <div className="flex items-center justify-between pt-2 border-t border-[#EAEAEA]">
+          <span className="font-sans font-semibold text-sm text-[#111111]">
+            ${parseFloat(item.price).toFixed(2)}
+          </span>
+          <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">
+            {item.category_name}
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  );
 
   return (
     <section id="template-catalog-section" className="py-24 bg-white border-b border-[#EAEAEA]">
@@ -139,134 +274,88 @@ export default function TemplateSection({
           </div>
         </div>
 
-        {/* SECTION 1: FEATURED TEMPLATES */}
-        <div className="space-y-8 mb-20 text-left">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Bookmark className="w-4 h-4 text-accent" />
-              <h3 className="font-sans text-lg font-semibold text-[#111111]">Featured Templates</h3>
-            </div>
-            {selectedCategory !== 'all' && (
-              <span className="text-xs font-mono text-neutral-400">
-                Filtering: {selectedCategory.toUpperCase()}
-              </span>
+        {/* Loading State */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-20 space-y-3">
+            <Loader2 className="w-6 h-6 text-neutral-400 animate-spin" />
+            <span className="text-xs font-mono text-neutral-400 uppercase tracking-widest">Loading templates…</span>
+          </div>
+        )}
+
+        {/* Error State */}
+        {!loading && error && (
+          <div className="flex flex-col items-center justify-center py-20 space-y-3">
+            <AlertCircle className="w-8 h-8 text-neutral-300" />
+            <p className="text-sm text-neutral-500 font-sans">{error}</p>
+          </div>
+        )}
+
+        {/* Templates Content */}
+        {!loading && !error && (
+          <>
+            {/* SECTION 1: FEATURED TEMPLATES */}
+            {featuredTemplates.length > 0 && (
+              <div className="space-y-8 mb-20 text-left">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Bookmark className="w-4 h-4 text-accent" />
+                    <h3 className="font-sans text-lg font-semibold text-[#111111]">Featured Templates</h3>
+                  </div>
+                  {selectedCategory !== 'all' && (
+                    <span className="text-xs font-mono text-neutral-400">
+                      Filtering: {selectedCategory.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  {featuredTemplates.map((item) => renderTemplateCard(item, 'featured'))}
+                </div>
+              </div>
             )}
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {filteredFeatured.map((item) => (
-              <motion.div
-                key={item.id}
-                id={`featured-card-${item.id}`}
-                whileHover={{ y: -5 }}
-                className="group relative bg-white rounded-xl border border-dashed border-[#EAEAEA] p-8 flex flex-col justify-between h-[380px] overflow-hidden transition-all hover:border-[#111111] hover:bg-[#FAFAFA]/50"
-              >
-                {/* Structural Grid lines representing blueprint */}
-                <div className="absolute inset-0 bg-[linear-gradient(to_right,#fafafa_1px,transparent_1px),linear-gradient(to_bottom,#fafafa_1px,transparent_1px)] bg-[size:24px_24px] opacity-40 group-hover:opacity-60 transition-opacity" />
-
-                <div className="relative z-10 flex items-center justify-between">
-                  <span className="text-[9px] font-mono uppercase tracking-widest text-[#666666]">
-                    {item.ratio}
-                  </span>
-                  <div className="w-2.5 h-2.5 rounded-full bg-[#EAEAEA] group-hover:bg-[#2563EB] transition-colors" />
-                </div>
-
-                <div className="relative z-10 space-y-4 py-12 text-center flex-1 flex flex-col justify-center">
-                  <div className="w-12 h-12 rounded-full bg-[#FAFAFA] border border-[#EAEAEA] flex items-center justify-center mx-auto group-hover:border-[#111111]/40 group-hover:bg-blue-50/20 transition-all">
-                    <Layout className="w-5 h-5 text-neutral-400 group-hover:text-accent transition-colors" />
-                  </div>
-                  <div>
-                    <h4 className="font-sans font-medium text-sm text-[#666666] group-hover:text-[#111111] transition-colors">
-                      {item.title}
-                    </h4>
-                    <span className="text-xs text-[#A1A1A1] uppercase tracking-widest block mt-2">
-                      Templates will appear here
-                    </span>
+            {/* SECTION 2: LATEST TEMPLATES */}
+            {latestTemplates.length > 0 && (
+              <div className="space-y-8 text-left">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Cpu className="w-4 h-4 text-accent" />
+                    <h3 className="font-sans text-lg font-semibold text-[#111111]">Latest Templates</h3>
                   </div>
                 </div>
 
-                <div className="relative z-10 border-t border-[#EAEAEA] pt-4 flex items-center justify-between">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  {latestTemplates.map((item) => renderTemplateCard(item, 'latest'))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {templates.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                <div className="w-16 h-16 rounded-full bg-[#FAFAFA] border border-[#EAEAEA] flex items-center justify-center">
+                  <Layout className="w-7 h-7 text-neutral-300" />
+                </div>
+                <div className="text-center space-y-1">
+                  <h4 className="font-sans font-medium text-neutral-600">No templates found</h4>
+                  <p className="text-xs text-neutral-400 font-sans">
+                    {searchQuery
+                      ? `No results for "${searchQuery}". Try a different search.`
+                      : 'Try selecting a different category or filter.'}
+                  </p>
+                </div>
+                {selectedCategory !== 'all' && (
                   <button
-                    id={`notify-btn-${item.id}`}
-                    onClick={() => {
-                      setSelectedMockupRatio(item.title);
-                      setShowNotifyModal(true);
-                    }}
-                    className="text-[10px] font-mono uppercase tracking-widest text-[#666666] hover:text-accent transition-colors flex items-center space-x-1"
+                    onClick={() => setSelectedCategory('all')}
+                    className="text-xs font-mono uppercase tracking-widest text-accent hover:underline"
                   >
-                    <Bell className="w-3.5 h-3.5" />
-                    <span>Notify on Launch</span>
+                    Clear Filters
                   </button>
-                  <span className="text-[10px] font-mono text-neutral-400">
-                    [ PRE-RELEASE ]
-                  </span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        {/* SECTION 2: LATEST TEMPLATES */}
-        <div className="space-y-8 text-left">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Cpu className="w-4 h-4 text-accent" />
-              <h3 className="font-sans text-lg font-semibold text-[#111111]">Latest Templates</h3>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {filteredLatest.map((item) => (
-              <motion.div
-                key={item.id}
-                id={`latest-card-${item.id}`}
-                whileHover={{ y: -5 }}
-                className="group relative bg-white rounded-xl border border-dashed border-[#EAEAEA] p-8 flex flex-col justify-between h-[380px] overflow-hidden transition-all hover:border-[#111111] hover:bg-[#FAFAFA]/50"
-              >
-                {/* Structural Grid lines representing blueprint */}
-                <div className="absolute inset-0 bg-[linear-gradient(to_right,#fafafa_1px,transparent_1px),linear-gradient(to_bottom,#fafafa_1px,transparent_1px)] bg-[size:24px_24px] opacity-40 group-hover:opacity-60 transition-opacity" />
-
-                <div className="relative z-10 flex items-center justify-between">
-                  <span className="text-[9px] font-mono uppercase tracking-widest text-[#666666]">
-                    {item.ratio}
-                  </span>
-                  <div className="w-2.5 h-2.5 rounded-full bg-[#EAEAEA] group-hover:bg-[#2563EB] transition-colors" />
-                </div>
-
-                <div className="relative z-10 space-y-4 py-12 text-center flex-1 flex flex-col justify-center">
-                  <div className="w-12 h-12 rounded-full bg-[#FAFAFA] border border-[#EAEAEA] flex items-center justify-center mx-auto group-hover:border-[#111111]/40 group-hover:bg-blue-50/20 transition-all">
-                    <Layout className="w-5 h-5 text-neutral-400 group-hover:text-accent transition-colors" />
-                  </div>
-                  <div>
-                    <h4 className="font-sans font-medium text-sm text-[#666666] group-hover:text-[#111111] transition-colors">
-                      {item.title}
-                    </h4>
-                    <span className="text-xs text-[#A1A1A1] uppercase tracking-widest block mt-2">
-                      Templates will appear here
-                    </span>
-                  </div>
-                </div>
-
-                <div className="relative z-10 border-t border-[#EAEAEA] pt-4 flex items-center justify-between">
-                  <button
-                    id={`notify-btn-${item.id}`}
-                    onClick={() => {
-                      setSelectedMockupRatio(item.title);
-                      setShowNotifyModal(true);
-                    }}
-                    className="text-[10px] font-mono uppercase tracking-widest text-[#666666] hover:text-accent transition-colors flex items-center space-x-1"
-                  >
-                    <Bell className="w-3.5 h-3.5" />
-                    <span>Notify on Launch</span>
-                  </button>
-                  <span className="text-[10px] font-mono text-neutral-400">
-                    [ COMING SOON ]
-                  </span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
 
         {/* Interactive Custom Template Request Banner */}
         <div className="mt-20 p-8 md:p-12 bg-[#FAFAFA] rounded-2xl border border-[#EAEAEA] flex flex-col md:flex-row items-center justify-between gap-8 text-left">

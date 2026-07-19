@@ -7,6 +7,50 @@ export interface Category {
   icon: string; // Lucide icon name
 }
 
+// API response shape from Django /api/categories/
+export interface ApiCategory {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  image_color: string;
+  icon: string;
+  display_order: number;
+}
+
+// API response shape from Django /api/templates/
+export interface ApiTemplate {
+  id: number;
+  title: string;
+  slug: string;
+  description: string;
+  category: number;
+  category_slug: string;
+  category_name: string;
+  price: string; // DecimalField returns string
+  template_type: 'canva_template' | 'custom_website';
+  thumbnail: string;
+  ratio: string;
+  is_featured: boolean;
+  // Detail-only fields
+  preview_url?: string;
+  canva_url?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Convert ApiCategory to frontend Category shape
+export function apiCategoryToCategory(api: ApiCategory): Category {
+  return {
+    id: api.slug,
+    name: api.name,
+    description: api.description,
+    slug: api.slug,
+    imageColor: api.image_color,
+    icon: api.icon,
+  };
+}
+
 export interface CartItem {
   id: string;
   title: string;

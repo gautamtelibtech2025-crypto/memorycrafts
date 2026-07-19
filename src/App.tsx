@@ -252,6 +252,7 @@ export default function App() {
               selectedCategory={selectedCategory}
               setSelectedCategory={setSelectedCategory}
               setBuilderOpen={setBuilderOpen}
+              searchQuery={searchQuery}
             />
           </>
         )}
@@ -263,6 +264,7 @@ export default function App() {
               selectedCategory={selectedCategory}
               setSelectedCategory={setSelectedCategory}
               setBuilderOpen={setBuilderOpen}
+              searchQuery={searchQuery}
             />
           </>
         )}
