@@ -81,50 +81,49 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
         token = parts[1]
 
         try:
-            from django.conf import settings
-            from google.oauth2 import id_token
-            from google.auth.transport import requests as auth_requests
-            from google.auth import exceptions as auth_exceptions
+            from firebase_admin import auth as firebase_auth
 
-            project_id = getattr(settings, 'FIREBASE_PROJECT_ID', 'memorycraft-2c771')
-            
-            # Verify token using Google's public certificates (does not require service account file)
-            decoded_token = id_token.verify_firebase_token(
-                token,
-                auth_requests.Request(),
-                audience=project_id
-            )
-            
-            # Map 'sub' claim to 'uid' for compatibility
-            if 'uid' not in decoded_token and 'sub' in decoded_token:
-                decoded_token['uid'] = decoded_token['sub']
-
+            decoded_token = firebase_auth.verify_id_token(token)
             logger.info(
-                "Firebase token verified publicly for uid=%s email=%s",
+                "Firebase token verified for uid=%s email=%s",
                 decoded_token.get('uid'),
                 decoded_token.get('email'),
             )
             user = FirebaseUser(decoded_token)
             return (user, decoded_token)
 
-        except ValueError as e:
-            err_str = str(e).lower()
-            logger.warning("Firebase token verification ValueError: %s", str(e))
-            if "expired" in err_str:
-                raise exceptions.AuthenticationFailed(
-                    detail="Firebase ID token has expired. Please re-authenticate.",
-                    code="token_expired",
-                )
-            else:
-                raise exceptions.AuthenticationFailed(
-                    detail=f"Invalid Firebase ID token: {str(e)}",
-                    code="token_invalid",
-                )
-
-        except auth_exceptions.MalformedError as e:
-            logger.warning("Malformed Firebase ID token: %s", str(e))
+        except firebase_auth.ExpiredIdTokenError:
+            logger.warning("Expired Firebase ID token received")
             raise exceptions.AuthenticationFailed(
-                detail="Malformed authentication token format.",
+                detail="Firebase ID token has expired. Please re-authenticate.",
+                code="token_expired",
+            )
+
+        except firebase_auth.RevokedIdTokenError:
+            logger.warning("Revoked Firebase ID token received")
+            raise exceptions.AuthenticationFailed(
+                detail="Firebase ID token has been revoked.",
+                code="token_revoked",
+            )
+
+        except firebase_auth.InvalidIdTokenError as e:
+            logger.warning("Invalid Firebase ID token: %s", str(e))
+            raise exceptions.AuthenticationFailed(
+                detail="Invalid Firebase ID token.",
+                code="token_invalid",
+            )
+
+        except firebase_auth.CertificateFetchError as e:
+            logger.error("Failed to fetch Firebase certificates: %s", str(e))
+            raise exceptions.AuthenticationFailed(
+                detail="Authentication service temporarily unavailable.",
+                code="cert_fetch_error",
+            )
+
+        except ValueError as e:
+            logger.warning("Firebase token verification ValueError: %s", str(e))
+            raise exceptions.AuthenticationFailed(
+                detail="Invalid authentication token format.",
                 code="token_format_error",
             )
 
@@ -134,7 +133,6 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
                 detail="Authentication failed. Please try again.",
                 code="auth_error",
             )
-
 
     def authenticate_header(self, request):
         """

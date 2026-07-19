@@ -20,8 +20,8 @@ import {
   CheckSquare,
   Loader2
 } from 'lucide-react';
-import { CartItem, WishlistItem, CATEGORIES } from '../types';
-import { loginWithEmail, registerWithEmail, sendPasswordReset } from '../lib/firebase';
+import { CartItem, WishlistItem, CATEGORIES, UserProfile } from '../types';
+import { loginWithEmail, registerWithEmail, sendPasswordReset, checkEmailVerifiedStatus, sendVerificationEmail, logoutUser } from '../lib/firebase';
 
 interface DrawersAndModalsProps {
   cart: CartItem[];
@@ -40,7 +40,11 @@ interface DrawersAndModalsProps {
   addToCart: (item: Omit<CartItem, 'quantity'>) => void;
   onGoogleLogin: () => Promise<void>;
   onCheckout: () => Promise<void>;
+  user: UserProfile | null;
+  isEmailVerified: boolean;
+  setIsEmailVerified: (verified: boolean) => void;
 }
+
 
 export default function DrawersAndModals({
   cart,
@@ -59,19 +63,100 @@ export default function DrawersAndModals({
   addToCart,
   onGoogleLogin,
   onCheckout,
+  user,
+  isEmailVerified,
+  setIsEmailVerified,
 }: DrawersAndModalsProps) {
+
   // Login modal internal state
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   // Email/Password login internal state
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot' | 'verify'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccessMessage, setAuthSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Verification states
+  const [isCheckingVerification, setIsCheckingVerification] = useState(false);
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Sync authMode when unverified user is loaded
+  React.useEffect(() => {
+    if (user && !isEmailVerified) {
+      setAuthMode('verify');
+    }
+  }, [user, isEmailVerified]);
+
+  // Cooldown timer logic
+  React.useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => {
+        setResendCooldown((prev) => prev - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
+
+  const handleVerifyEmailCheck = async () => {
+    setAuthError(null);
+    setAuthSuccessMessage(null);
+    setIsCheckingVerification(true);
+    try {
+      const verified = await checkEmailVerifiedStatus();
+      if (verified) {
+        setIsEmailVerified(true);
+        setAuthSuccessMessage("Email verified successfully! Accessing MemoryCraft...");
+        setTimeout(() => {
+          setLoginOpen(false);
+          setAuthSuccessMessage(null);
+        }, 1500);
+      } else {
+        setAuthError("Email not verified yet. Please click the confirmation link sent to your inbox first.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setAuthError(err.message || "Failed to check email verification status.");
+    } finally {
+      setIsCheckingVerification(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (resendCooldown > 0) return;
+    setAuthError(null);
+    setAuthSuccessMessage(null);
+    setIsSendingVerification(true);
+    try {
+      await sendVerificationEmail();
+      setAuthSuccessMessage("Verification email resent! Please check your inbox/spam folder.");
+      setResendCooldown(60); // 60s cooldown
+    } catch (err: any) {
+      console.error(err);
+      setAuthError(err.message || "Failed to resend verification email.");
+    } finally {
+      setIsSendingVerification(false);
+    }
+  };
+
+  const handleBackToLogin = async () => {
+    setAuthError(null);
+    setAuthSuccessMessage(null);
+    try {
+      await logoutUser();
+      setIsEmailVerified(true);
+      setAuthMode('login');
+      setLoginOpen(true);
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
 
   // Clear modal inputs on close
   React.useEffect(() => {
@@ -527,7 +612,9 @@ export default function DrawersAndModals({
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.4 }}
               exit={{ opacity: 0 }}
-              onClick={() => setLoginOpen(false)}
+              onClick={() => {
+                if (authMode !== 'verify') setLoginOpen(false);
+              }}
               className="fixed inset-0 bg-black/50 backdrop-blur-xs"
             />
 
@@ -538,29 +625,41 @@ export default function DrawersAndModals({
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               className="bg-white max-w-md w-full rounded-lg shadow-2xl border border-neutral-100 overflow-hidden relative z-10"
             >
-              <button
-                id="close-login-btn"
-                onClick={() => setLoginOpen(false)}
-                className="absolute top-4 right-4 p-1 text-neutral-500 hover:text-neutral-950 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              {authMode !== 'verify' && (
+                <button
+                  id="close-login-btn"
+                  onClick={() => setLoginOpen(false)}
+                  className="absolute top-4 right-4 p-1 text-neutral-500 hover:text-neutral-950 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+
 
               <div className="p-8">
-                {isSigningIn || isSubmitting ? (
+                {isSigningIn || isSubmitting || isCheckingVerification || isSendingVerification ? (
                   <div className="text-center py-12 space-y-4">
                     <Loader2 className="w-10 h-10 text-[#2563EB] animate-spin mx-auto" />
                     <div>
                       <h3 className="font-sans font-semibold text-base text-[#111111]">
-                        Decrypting Identity Vault
+                        {isCheckingVerification 
+                          ? "Verifying Email Link" 
+                          : isSendingVerification 
+                          ? "Sending Verification Link" 
+                          : "Decrypting Identity Vault"}
                       </h3>
                       <p className="text-xs text-[#666666] mt-1 font-light">
-                        {isSigningIn
+                        {isCheckingVerification
+                          ? "Reloading profile state and checking verification flag..."
+                          : isSendingVerification
+                          ? "Requesting a fresh verification coordinates payload..."
+                          : isSigningIn
                           ? "Authenticating credentials securely with Google Auth..."
                           : "Authenticating credentials securely with Identity Vault..."}
                       </p>
                     </div>
                   </div>
+
                 ) : (
                   <div className="space-y-6 text-left">
                     <div className="text-center space-y-2">
@@ -571,12 +670,15 @@ export default function DrawersAndModals({
                         {authMode === 'login' && 'Access MemoryCraft'}
                         {authMode === 'signup' && 'Create Account'}
                         {authMode === 'forgot' && 'Reset Password'}
+                        {authMode === 'verify' && 'Verify Your Email'}
                       </h3>
                       <p className="text-xs text-[#666666] font-light leading-relaxed text-center">
                         {authMode === 'login' && 'To protect milestone integrity and persistent custom surprise vaults, access your patron space.'}
                         {authMode === 'signup' && 'Register your coordinates to start designing templates and custom surprise keepsakes.'}
                         {authMode === 'forgot' && 'Provide your email coordinates to receive a decryption password recovery link.'}
+                        {authMode === 'verify' && `We've sent a verification link to ${(user && user.email) || 'your email'}. Please check your inbox and verify your email.`}
                       </p>
+
                     </div>
 
                     {authError && (
@@ -650,7 +752,7 @@ export default function DrawersAndModals({
                     )}
 
                     {/* Google Login is always displayed for Login/Signup */}
-                    {authMode !== 'forgot' && (
+                    {authMode !== 'forgot' && authMode !== 'verify' && (
                       <>
                         <button
                           id="google-login-btn"
@@ -696,109 +798,173 @@ export default function DrawersAndModals({
                       </>
                     )}
 
-                    {/* Email/Password Forms */}
-                    <form
-                      onSubmit={
-                        authMode === 'login'
-                          ? handleEmailLogin
-                          : authMode === 'signup'
-                          ? handleEmailRegister
-                          : handlePasswordReset
-                      }
-                      className="space-y-4"
-                    >
-                      {authMode === 'signup' && (
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">
-                            Full Name
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            value={displayName}
-                            onChange={(e) => setDisplayName(e.target.value)}
-                            placeholder="e.g. Olivia Vance"
-                            className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#EAEAEA] rounded-full text-sm text-[#111111] focus:outline-hidden focus:border-[#2563EB] focus:bg-white transition-all font-sans"
-                          />
-                        </div>
-                      )}
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">
-                          Email Address
-                        </label>
-                        <input
-                          type="email"
-                          required
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="e.g. patron@memorycraft.site"
-                          className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#EAEAEA] rounded-full text-sm text-[#111111] focus:outline-hidden focus:border-[#2563EB] focus:bg-white transition-all font-sans"
-                        />
-                      </div>
-
-                      {authMode !== 'forgot' && (
-                        <div className="space-y-1">
-                          <div className="flex justify-between items-center">
-                            <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">
-                              Password
-                            </label>
-                            {authMode === 'login' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAuthMode('forgot');
-                                  setAuthError(null);
-                                  setAuthSuccessMessage(null);
-                                }}
-                                className="text-[10px] font-mono text-neutral-500 hover:text-neutral-900 transition-colors uppercase tracking-wider"
-                              >
-                                Forgot Password?
-                              </button>
-                            )}
+                    {/* Email/Password Forms or Email Verification Screen */}
+                    {authMode === 'verify' ? (
+                      <div className="space-y-4">
+                        <div className="bg-stone-50 border border-[#EAEAEA] rounded-2xl p-6 text-center space-y-4">
+                          <div className="w-12 h-12 bg-blue-50 text-[#2563EB] rounded-full flex items-center justify-center mx-auto border border-blue-100">
+                            <svg className="w-6 h-6 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 19v-8.93a2 2 0 01.89-1.664l8-5.333a2 2 0 012.22 0l8 5.333A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-2.25-1.5a2 2 0 00-2.22 0l-2.25 1.5" />
+                            </svg>
                           </div>
-                          <input
-                            type="password"
-                            required
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Min. 6 characters"
-                            className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#EAEAEA] rounded-full text-sm text-[#111111] focus:outline-hidden focus:border-[#2563EB] focus:bg-white transition-all font-sans"
-                          />
+                          
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-mono uppercase tracking-widest text-neutral-400 block">Waiting for Verification</span>
+                            <p className="text-xs text-neutral-600 font-light leading-relaxed">
+                              Please check your inbox at <strong className="font-semibold text-neutral-900">{(user && user.email) || email}</strong> and click the verification link to proceed.
+                            </p>
+                          </div>
                         </div>
-                      )}
 
-                      <button
-                        type="submit"
-                        className="w-full bg-neutral-950 text-white text-xs font-semibold py-3.5 rounded-full hover:bg-neutral-800 transition-all uppercase tracking-wider mt-2 cursor-pointer"
-                      >
-                        {authMode === 'login' && 'Log In'}
-                        {authMode === 'signup' && 'Create Account'}
-                        {authMode === 'forgot' && 'Send Reset Link'}
-                      </button>
-                    </form>
-
-                    {/* Footer toggles */}
-                    <div className="text-center pt-2">
-                      {authMode === 'login' && (
-                        <p className="text-xs text-neutral-500 font-sans">
-                          Don't have an account?{' '}
+                        {/* Action buttons */}
+                        <div className="flex flex-col space-y-2 pt-2">
                           <button
                             type="button"
-                            onClick={() => {
-                              setAuthMode('signup');
-                              setAuthError(null);
-                              setAuthSuccessMessage(null);
-                            }}
-                            className="font-semibold text-neutral-950 hover:underline"
+                            onClick={handleVerifyEmailCheck}
+                            className="w-full bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold py-3.5 rounded-full transition-all uppercase tracking-wider flex items-center justify-center space-x-2 cursor-pointer animate-pulse"
                           >
-                            Sign Up
+                            <span>I've Verified My Email</span>
                           </button>
-                        </p>
-                      )}
-                      {authMode === 'signup' && (
-                        <p className="text-xs text-neutral-500 font-sans">
-                          Already have an account?{' '}
+                          
+                          <button
+                            type="button"
+                            disabled={resendCooldown > 0}
+                            onClick={handleResendVerification}
+                            className="w-full border border-[#EAEAEA] hover:bg-[#FAFAFA] text-neutral-800 text-xs font-semibold py-3.5 rounded-full transition-all uppercase tracking-wider disabled:opacity-50 disabled:hover:bg-white flex items-center justify-center space-x-2 cursor-pointer"
+                          >
+                            <span>
+                              {resendCooldown > 0 ? `Resend Verification (${resendCooldown}s)` : "Resend Verification Email"}
+                            </span>
+                          </button>
+                          
+                          <button
+                            type="button"
+                            onClick={handleBackToLogin}
+                            className="w-full border border-dashed border-neutral-200 hover:border-neutral-400 text-neutral-500 hover:text-neutral-950 text-[10px] font-mono uppercase tracking-wider py-3.5 rounded-full transition-all text-center cursor-pointer"
+                          >
+                            Change Email / Back to Login
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <form
+                        onSubmit={
+                          authMode === 'login'
+                            ? handleEmailLogin
+                            : authMode === 'signup'
+                            ? handleEmailRegister
+                            : handlePasswordReset
+                        }
+                        className="space-y-4"
+                      >
+                        {authMode === 'signup' && (
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">
+                              Full Name
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={displayName}
+                              onChange={(e) => setDisplayName(e.target.value)}
+                              placeholder="e.g. Olivia Vance"
+                              className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#EAEAEA] rounded-full text-sm text-[#111111] focus:outline-hidden focus:border-[#2563EB] focus:bg-white transition-all font-sans"
+                            />
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">
+                            Email Address
+                          </label>
+                          <input
+                            type="email"
+                            required
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="e.g. patron@memorycraft.site"
+                            className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#EAEAEA] rounded-full text-sm text-[#111111] focus:outline-hidden focus:border-[#2563EB] focus:bg-white transition-all font-sans"
+                          />
+                        </div>
+
+                        {authMode !== 'forgot' && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">
+                                Password
+                              </label>
+                              {authMode === 'login' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAuthMode('forgot');
+                                    setAuthError(null);
+                                    setAuthSuccessMessage(null);
+                                  }}
+                                  className="text-[10px] font-mono text-neutral-500 hover:text-neutral-900 transition-colors uppercase tracking-wider"
+                                >
+                                  Forgot Password?
+                                </button>
+                              )}
+                            </div>
+                            <input
+                              type="password"
+                              required
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder="Min. 6 characters"
+                              className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#EAEAEA] rounded-full text-sm text-[#111111] focus:outline-hidden focus:border-[#2563EB] focus:bg-white transition-all font-sans"
+                            />
+                          </div>
+                        )}
+
+                        <button
+                          type="submit"
+                          className="w-full bg-neutral-950 text-white text-xs font-semibold py-3.5 rounded-full hover:bg-neutral-800 transition-all uppercase tracking-wider mt-2 cursor-pointer"
+                        >
+                          {authMode === 'login' && 'Log In'}
+                          {authMode === 'signup' && 'Create Account'}
+                          {authMode === 'forgot' && 'Send Reset Link'}
+                        </button>
+                      </form>
+                    )}
+
+                    {/* Footer toggles */}
+                    {authMode !== 'verify' && (
+                      <div className="text-center pt-2">
+                        {authMode === 'login' && (
+                          <p className="text-xs text-neutral-500 font-sans">
+                            Don't have an account?{' '}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAuthMode('signup');
+                                setAuthError(null);
+                                setAuthSuccessMessage(null);
+                              }}
+                              className="font-semibold text-neutral-950 hover:underline"
+                            >
+                              Sign Up
+                            </button>
+                          </p>
+                        )}
+                        {authMode === 'signup' && (
+                          <p className="text-xs text-neutral-500 font-sans">
+                            Already have an account?{' '}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAuthMode('login');
+                                setAuthError(null);
+                                setAuthSuccessMessage(null);
+                              }}
+                              className="font-semibold text-neutral-950 hover:underline"
+                            >
+                              Log In
+                            </button>
+                          </p>
+                        )}
+                        {authMode === 'forgot' && (
                           <button
                             type="button"
                             onClick={() => {
@@ -806,35 +972,22 @@ export default function DrawersAndModals({
                               setAuthError(null);
                               setAuthSuccessMessage(null);
                             }}
-                            className="font-semibold text-neutral-950 hover:underline"
+                            className="text-xs font-semibold text-neutral-950 hover:underline block mx-auto"
                           >
-                            Log In
+                            Back to Log In
                           </button>
-                        </p>
-                      )}
-                      {authMode === 'forgot' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAuthMode('login');
-                            setAuthError(null);
-                            setAuthSuccessMessage(null);
-                          }}
-                          className="text-xs font-semibold text-neutral-950 hover:underline block mx-auto"
-                        >
-                          Back to Log In
-                        </button>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </motion.div>
-
-
           </div>
         )}
       </AnimatePresence>
+
+
 
       {/* Custom Surprise Website Configurator Modal */}
       <AnimatePresence>

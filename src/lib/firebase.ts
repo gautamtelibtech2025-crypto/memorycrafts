@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser, updateProfile, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser, updateProfile, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup, sendEmailVerification, reload } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, updateDoc, setLogLevel, collection, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { UserProfile } from '../types';
 import { apiUpload, apiDelete } from './api';
@@ -312,6 +312,7 @@ export async function loginWithEmail(email: string, password: string): Promise<U
             email: found.email,
             photoURL: found.photoURL,
             phoneNumber: found.phoneNumber,
+            emailVerified: (found as any).emailVerified !== undefined ? (found as any).emailVerified : true,
           };
           localStorage.setItem(MOCK_USER_KEY, JSON.stringify(currentMockUser));
           mockAuthListeners.forEach((listener) => listener(found));
@@ -340,6 +341,14 @@ export async function registerWithEmail(email: string, password: string, display
       // Force refresh auth user to populate updated profile fields
       await result.user.reload();
       const updatedUser = auth.currentUser;
+
+      // Immediately send email verification link
+      try {
+        await sendEmailVerification(result.user);
+      } catch (verifyErr) {
+        console.warn("Failed to send initial verification email:", verifyErr);
+      }
+
       const userProfile = await syncUserProfile(updatedUser || result.user);
       return userProfile;
     } catch (error: any) {
@@ -379,6 +388,7 @@ export async function registerWithEmail(email: string, password: string, display
             email,
             photoURL: newProfile.photoURL,
             phoneNumber: '',
+            emailVerified: false, // Starts as unverified in Mock Mode
           };
           localStorage.setItem(MOCK_USER_KEY, JSON.stringify(currentMockUser));
           
@@ -389,6 +399,7 @@ export async function registerWithEmail(email: string, password: string, display
     });
   }
 }
+
 
 // Send password reset email
 export async function sendPasswordReset(email: string): Promise<void> {
@@ -427,6 +438,57 @@ export async function logoutUser(): Promise<void> {
     mockAuthListeners.forEach((listener) => listener(null));
   }
 }
+
+// Check if the user's email is verified (bypasses for Google sign-in)
+export function isUserEmailVerified(): boolean {
+  if (isFirebaseConfigured && auth) {
+    const user = auth.currentUser;
+    if (!user) return false;
+    
+    // Check if the user is a Google Auth provider user
+    const isGoogle = user.providerData.some((p) => p.providerId === 'google.com');
+    if (isGoogle) return true;
+
+    return user.emailVerified;
+  } else {
+    // Mock Mode
+    if (!currentMockUser) return false;
+    return currentMockUser.emailVerified !== false;
+  }
+}
+
+// Send email verification link
+export async function sendVerificationEmail(): Promise<void> {
+  if (isFirebaseConfigured && auth && auth.currentUser) {
+    await sendEmailVerification(auth.currentUser);
+  } else {
+    console.log("[Mock Mode] Verification email simulated.");
+  }
+}
+
+// Check verification status (reloads the user profile)
+export async function checkEmailVerifiedStatus(): Promise<boolean> {
+  if (isFirebaseConfigured && auth && auth.currentUser) {
+    await reload(auth.currentUser);
+    return auth.currentUser.emailVerified;
+  } else {
+    // Mock Mode: simulate verification success on check
+    if (currentMockUser) {
+      currentMockUser.emailVerified = true;
+      localStorage.setItem(MOCK_USER_KEY, JSON.stringify(currentMockUser));
+      
+      // Notify listeners
+      const profiles = getMockProfiles();
+      if (profiles[currentMockUser.uid]) {
+        profiles[currentMockUser.uid].emailVerified = true;
+        saveMockProfiles(profiles);
+      }
+      mockAuthListeners.forEach((listener) => listener(currentMockUser));
+    }
+    return true;
+  }
+}
+
 
 export enum OperationType {
   CREATE = 'create',

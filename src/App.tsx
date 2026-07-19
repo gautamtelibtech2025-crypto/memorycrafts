@@ -16,7 +16,7 @@ import HowItWorksView from './components/HowItWorksView';
 import UserProfileView from './components/UserProfileView';
 import FutureDashboardView from './components/FutureDashboardView';
 import Toast, { ToastMessage } from './components/Toast';
-import { subscribeToAuthState, signInWithGoogle, logoutUser } from './lib/firebase';
+import { subscribeToAuthState, signInWithGoogle, logoutUser, isUserEmailVerified, sendVerificationEmail, checkEmailVerifiedStatus } from './lib/firebase';
 import { createOrder } from './lib/orders';
 import { CartItem, WishlistItem, UserProfile } from './types';
 
@@ -69,14 +69,17 @@ export default function App() {
 
   // Auth State
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [isEmailVerified, setIsEmailVerified] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
 
   // Subscribe to Auth changes
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((profile) => {
       setUser(profile);
+      setIsEmailVerified(isUserEmailVerified());
       setAuthLoading(false);
     });
+
     return () => {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
@@ -295,7 +298,7 @@ export default function App() {
         wishlist={wishlist}
         isCartOpen={isCartOpen}
         isWishlistOpen={isWishlistOpen}
-        isLoginOpen={isLoginOpen}
+        isLoginOpen={isLoginOpen || (user !== null && !isEmailVerified)}
         isBuilderOpen={isBuilderOpen}
         setCartOpen={handleSetCartOpen}
         setWishlistOpen={handleSetWishlistOpen}
@@ -307,7 +310,11 @@ export default function App() {
         addToCart={addToCart}
         onGoogleLogin={handleGoogleLogin}
         onCheckout={handleCheckout}
+        user={user}
+        isEmailVerified={isEmailVerified}
+        setIsEmailVerified={setIsEmailVerified}
       />
+
 
       {/* Premium Toast Notifications */}
       <Toast toasts={toasts} removeToast={removeToast} />
