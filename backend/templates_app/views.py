@@ -16,45 +16,65 @@ from .serializers import (
 )
 
 
-class CategoryListView(generics.ListAPIView):
+from rest_framework import generics, filters, status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django.db.models import Q
+
+from .models import Category, Template
+from .serializers import (
+    CategorySerializer,
+    TemplateListSerializer,
+    TemplateDetailSerializer,
+)
+
+
+class CategoryListView(generics.ListCreateAPIView):
     """
-    GET /api/categories/
-    Returns all active categories ordered by display_order.
+    GET /api/categories/  — Returns categories (active only for public, all for ?admin=true)
+    POST /api/categories/ — Creates a new category
     """
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
 
     def get_queryset(self):
+        show_all = self.request.query_params.get('admin') == 'true'
+        if show_all:
+            return Category.objects.all()
         return Category.objects.filter(is_active=True)
 
 
-class CategoryDetailView(generics.RetrieveAPIView):
+class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
-    GET /api/categories/<slug>/
-    Returns a single active category by slug.
+    GET /api/categories/<pk_or_slug>/    — Retrieve category
+    PUT/PATCH /api/categories/<id>/      — Update category
+    DELETE /api/categories/<id>/         — Delete category
     """
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
-    lookup_field = 'slug'
 
-    def get_queryset(self):
-        return Category.objects.filter(is_active=True)
+    def get_object(self):
+        lookup = self.kwargs.get('slug')
+        if lookup.isdigit():
+            return generics.get_object_or_404(Category, pk=int(lookup))
+        return generics.get_object_or_404(Category, slug=lookup)
 
 
-class TemplateListView(generics.ListAPIView):
+class TemplateListView(generics.ListCreateAPIView):
     """
-    GET /api/templates/
-    Returns active templates with optional filters:
-      ?category=<slug>     — filter by category slug
-      ?search=<term>       — search title/description
-      ?featured=true       — featured templates only
-      ?type=canva_template — filter by template_type
+    GET /api/templates/  — Returns templates (supports category, search, featured, type filters)
+    POST /api/templates/ — Creates a new template
     """
     serializer_class = TemplateListSerializer
     permission_classes = [AllowAny]
 
     def get_queryset(self):
-        qs = Template.objects.filter(is_active=True).select_related('category')
+        show_all = self.request.query_params.get('admin') == 'true'
+        if show_all:
+            qs = Template.objects.all().select_related('category')
+        else:
+            qs = Template.objects.filter(is_active=True).select_related('category')
 
         # Category filter
         category_slug = self.request.query_params.get('category')
@@ -81,15 +101,60 @@ class TemplateListView(generics.ListAPIView):
 
         return qs
 
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return TemplateDetailSerializer
+        return TemplateListSerializer
 
-class TemplateDetailView(generics.RetrieveAPIView):
+
+class TemplateDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
-    GET /api/templates/<slug>/
-    Returns a single active template by slug with full detail.
+    GET /api/templates/<pk_or_slug>/    — Retrieve template
+    PUT/PATCH /api/templates/<id>/      — Update template
+    DELETE /api/templates/<id>/         — Delete template
     """
     serializer_class = TemplateDetailSerializer
     permission_classes = [AllowAny]
-    lookup_field = 'slug'
 
-    def get_queryset(self):
-        return Template.objects.filter(is_active=True).select_related('category')
+    def get_object(self):
+        lookup = self.kwargs.get('slug')
+        if lookup.isdigit():
+            return generics.get_object_or_404(Template.objects.select_related('category'), pk=int(lookup))
+        return generics.get_object_or_404(Template.objects.select_related('category'), slug=lookup)
+
+
+class AdminStatsView(APIView):
+    """
+    GET /api/admin/stats/
+    Returns real statistics from SQLite database for MemoryCraft Admin Dashboard.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        total_templates = Template.objects.count()
+        active_templates = Template.objects.filter(is_active=True).count()
+        featured_templates = Template.objects.filter(is_featured=True).count()
+
+        total_categories = Category.objects.count()
+        active_categories = Category.objects.filter(is_active=True).count()
+
+        recent_templates = TemplateListSerializer(
+            Template.objects.all().select_related('category')[:5],
+            many=True
+        ).data
+
+        recent_categories = CategorySerializer(
+            Category.objects.all()[:5],
+            many=True
+        ).data
+
+        return Response({
+            'total_templates': total_templates,
+            'active_templates': active_templates,
+            'featured_templates': featured_templates,
+            'total_categories': total_categories,
+            'active_categories': active_categories,
+            'recent_templates': recent_templates,
+            'recent_categories': recent_categories,
+        })
+

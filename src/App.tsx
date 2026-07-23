@@ -11,6 +11,7 @@ import TemplateSection from './components/TemplateSection';
 import Footer from './components/Footer';
 import DrawersAndModals from './components/DrawersAndModals';
 
+import AdminDashboardView from './components/AdminDashboardView';
 import SurpriseWebsitesView from './components/SurpriseWebsitesView';
 import HowItWorksView from './components/HowItWorksView';
 import UserProfileView from './components/UserProfileView';
@@ -27,25 +28,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Cart & Wishlist States
-  const [cart, setCart] = useState<CartItem[]>([
-    {
-      id: 'initial-sample',
-      title: 'Aesthetic Anniversary Photobook Layout',
-      price: 29.0,
-      type: 'canva_template',
-      category: 'anniversary',
-      quantity: 1,
-    }
-  ]);
-  const [wishlist, setWishlist] = useState<WishlistItem[]>([
-    {
-      id: 'wish-sample',
-      title: 'Minimalist Wedding Reception Suite',
-      price: 49.0,
-      type: 'canva_template',
-      category: 'wedding',
-    }
-  ]);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
 
   // Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -92,7 +76,7 @@ export default function App() {
     if (!authLoading && !user && (activeTab === 'profile' || activeTab === 'dashboard')) {
       setActiveTab('home');
       setLoginOpen(true);
-      showToast("Access Restricted. Please connect your Google account to view this space.", "error");
+      showToast("Access Restricted. Please connect your account to view this space.", "error");
     }
   }, [activeTab, user, authLoading]);
 
@@ -101,14 +85,14 @@ export default function App() {
     try {
       const profile = await signInWithGoogle();
       setUser(profile);
-      showToast(`Welcome back, ${profile.displayName || 'Bespoke Patron'}! Connection encrypted.`, 'success');
+      showToast(`Welcome back, ${profile.displayName || 'Patron'}!`, 'success');
       setLoginOpen(false);
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/popup-closed-by-user') {
-        showToast('Login Cancelled. The Google popup was closed before authentication was finalized.', 'error');
+        showToast('Login Cancelled.', 'error');
       } else {
-        showToast(err.message || 'Authentication error occurred. Please try again.', 'error');
+        showToast(err.message || 'Authentication error occurred.', 'error');
       }
       throw err;
     }
@@ -136,7 +120,7 @@ export default function App() {
   const requireAuth = (action: () => void) => {
     if (!user) {
       setLoginOpen(true);
-      showToast("Identity check required. Please connect your Google account to proceed.", "error");
+      showToast("Identity check required. Please connect your account to proceed.", "error");
     } else {
       action();
     }
@@ -216,6 +200,20 @@ export default function App() {
   };
 
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
+
+  // Standalone Admin Dashboard View
+  if (activeTab === 'admin') {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <AdminDashboardView
+          user={user}
+          setActiveTab={setActiveTab}
+          showToast={showToast}
+        />
+        <Toast toasts={toasts} removeToast={removeToast} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white text-neutral-950 flex flex-col font-sans antialiased selection:bg-neutral-100 selection:text-neutral-900">

@@ -16,6 +16,7 @@ export interface ApiCategory {
   image_color: string;
   icon: string;
   display_order: number;
+  is_active?: boolean;
 }
 
 // API response shape from Django /api/templates/
@@ -32,11 +33,22 @@ export interface ApiTemplate {
   thumbnail: string;
   ratio: string;
   is_featured: boolean;
+  is_active?: boolean;
   // Detail-only fields
   preview_url?: string;
   canva_url?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface AdminStats {
+  total_templates: number;
+  active_templates: number;
+  featured_templates: number;
+  total_categories: number;
+  active_categories: number;
+  recent_templates: ApiTemplate[];
+  recent_categories: ApiCategory[];
 }
 
 // Convert ApiCategory to frontend Category shape

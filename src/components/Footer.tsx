@@ -69,6 +69,12 @@ export default function Footer({ setActiveTab, setBuilderOpen }: FooterProps) {
                 </button>
               </li>
               <li>
+                <button onClick={() => handleNavClick('admin')} className="text-slate-900 hover:text-blue-600 transition-colors font-semibold flex items-center space-x-1">
+                  <span>Admin Control Panel</span>
+                  <ExternalLink className="w-3 h-3 text-slate-500" />
+                </button>
+              </li>
+              <li>
                 <button onClick={() => setBuilderOpen(true)} className="text-[#666666] hover:text-[#2563EB] transition-colors font-medium flex items-center space-x-1">
                   <span>Custom Configurator</span>
                   <ExternalLink className="w-3 h-3" />

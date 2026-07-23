@@ -18,6 +18,9 @@ firebase-service-account.json
 *firebase-adminsdk*.json
 *.json.bak
 
+# Media uploads
+media/
+
 
 # IDE
 .vscode/

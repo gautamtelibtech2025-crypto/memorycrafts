@@ -321,6 +321,19 @@ export default function Navbar({
                         </button>
 
                         <button
+                          id="dropdown-admin-btn"
+                          onClick={() => {
+                            setActiveTab('admin');
+                            setIsProfileDropdownOpen(false);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          className="flex items-center space-x-3 w-full px-3 py-2 text-left rounded-md text-xs font-semibold text-slate-900 hover:bg-[#FAFAFA] transition-colors font-sans cursor-pointer border-t border-neutral-100"
+                        >
+                          <LayoutDashboard className="w-4 h-4 text-slate-700" />
+                          <span>Admin Control Panel</span>
+                        </button>
+
+                        <button
                           id="dropdown-wishlist-btn"
                           onClick={() => {
                             setWishlistOpen(true);
